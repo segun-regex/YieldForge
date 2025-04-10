@@ -116,3 +116,95 @@
         (<= protocol-id MAX-PROTOCOL-ID)
     )
 )
+
+(define-private (is-valid-apy (apy uint))
+    (and 
+        (>= apy MIN-APY)
+        (<= apy MAX-APY)
+    )
+)
+
+(define-private (is-valid-name (name (string-ascii 64)))
+    (and 
+        (not (is-eq name ""))
+        (<= (len name) u64)
+    )
+)
+
+(define-private (protocol-exists (protocol-id uint))
+    (is-some (map-get? protocols { protocol-id: protocol-id }))
+)
+
+(define-private (check-valid-amount (amount uint))
+    (begin
+        (asserts! (> amount u0) ERR-ZERO-AMOUNT)
+        (asserts! (<= amount MAX-TOKEN-TRANSFER) ERR-AMOUNT-TOO-LARGE)
+        (ok amount)
+    )
+)
+
+(define-private (check-valid-user (user principal))
+    (begin
+        (asserts! (not (is-eq user (as-contract tx-sender))) ERR-INVALID-USER)
+        (ok user)
+    )
+)
+
+(define-private (check-contract-state)
+    (begin
+        (asserts! (not (var-get emergency-shutdown)) ERR-STRATEGY-DISABLED)
+        (ok true)
+    )
+)
+
+;; Protocol Management Functions
+(define-public (add-protocol (protocol-id uint) (name (string-ascii 64)) (initial-apy uint))
+    (begin
+        (asserts! (is-contract-owner) ERR-NOT-AUTHORIZED)
+        (asserts! (is-valid-protocol-id protocol-id) ERR-INVALID-PROTOCOL-ID)
+        (asserts! (not (protocol-exists protocol-id)) ERR-PROTOCOL-EXISTS)
+        (asserts! (is-valid-name name) ERR-INVALID-NAME)
+        (asserts! (is-valid-apy initial-apy) ERR-INVALID-APY)
+        
+        (map-set protocols { protocol-id: protocol-id }
+            { 
+                name: name,
+                active: PROTOCOL-ACTIVE,
+                apy: initial-apy
+            }
+        )
+        (map-set strategy-allocations { protocol-id: protocol-id } { allocation: u0 })
+        (ok true)
+    )
+)
+
+(define-public (update-protocol-status (protocol-id uint) (active bool))
+    (begin
+        (asserts! (is-contract-owner) ERR-NOT-AUTHORIZED)
+        (asserts! (is-valid-protocol-id protocol-id) ERR-INVALID-PROTOCOL-ID)
+        (asserts! (protocol-exists protocol-id) ERR-INVALID-PROTOCOL-ID)
+        
+        (let ((protocol (unwrap-panic (get-protocol protocol-id))))
+            (map-set protocols { protocol-id: protocol-id }
+                (merge protocol { active: active })
+            )
+        )
+        (ok true)
+    )
+)
+
+(define-public (update-protocol-apy (protocol-id uint) (new-apy uint))
+    (begin
+        (asserts! (is-contract-owner) ERR-NOT-AUTHORIZED)
+        (asserts! (is-valid-protocol-id protocol-id) ERR-INVALID-PROTOCOL-ID)
+        (asserts! (protocol-exists protocol-id) ERR-INVALID-PROTOCOL-ID)
+        (asserts! (is-valid-apy new-apy) ERR-INVALID-APY)
+        
+        (let ((protocol (unwrap-panic (get-protocol protocol-id))))
+            (map-set protocols { protocol-id: protocol-id }
+                (merge protocol { apy: new-apy })
+            )
+        )
+        (ok true)
+    )
+)
