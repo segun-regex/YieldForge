@@ -273,3 +273,52 @@
         (ok true)
     )
 )
+
+(define-public (withdraw (token-trait <sip-010-trait>) (amount uint))
+    (let
+        (
+            (user-principal tx-sender)
+            (current-deposit (default-to { amount: u0, last-deposit-block: u0 }
+                (map-get? user-deposits { user: user-principal })))
+        )
+        (try! (check-valid-amount amount))
+        (try! (check-valid-user user-principal))
+        (try! (validate-token-extended token-trait))
+        (try! (check-rate-limit user-principal))
+        (asserts! (<= amount (get amount current-deposit)) ERR-INSUFFICIENT-BALANCE)
+
+        (let ((contract-balance (try! (contract-call? token-trait get-balance (as-contract tx-sender)))))
+            (asserts! (>= contract-balance amount) ERR-INSUFFICIENT-BALANCE)
+        )
+
+        (map-set user-deposits
+            { user: user-principal }
+            {
+                amount: (- (get amount current-deposit) amount),
+                last-deposit-block: (get last-deposit-block current-deposit)
+            })
+        
+        (var-set total-tvl (- (var-get total-tvl) amount))
+        (update-rate-limit user-principal)
+        
+        (as-contract
+            (try! (safe-token-transfer token-trait amount tx-sender user-principal)))
+        
+        (ok true)
+    )
+)
+
+;; Token Transfer Helper
+(define-private (safe-token-transfer (token-trait <sip-010-trait>) (amount uint) (sender principal) (recipient principal))
+    (begin
+        (asserts! (not (var-get emergency-shutdown)) ERR-STRATEGY-DISABLED)
+        (try! (check-valid-amount amount))
+        (try! (check-valid-user recipient))
+        (try! (validate-token token-trait))
+        
+        (let ((sender-balance (unwrap-panic (contract-call? token-trait get-balance sender))))
+            (asserts! (>= sender-balance amount) ERR-INSUFFICIENT-BALANCE)
+        )
+        (contract-call? token-trait transfer amount sender recipient none)
+    )
+)
